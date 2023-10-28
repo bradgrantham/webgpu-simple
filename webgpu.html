@@ -8,24 +8,24 @@
   <body>
     <canvas width="512" height="512"></canvas>
     <script type="module">
-      const canvas = document.querySelector("canvas");
+    const canvas = document.querySelector("canvas");
 
-      if (!navigator.gpu) {
-          throw new Error("WebGPU not supported on this browser.");
-      }
+    if (!navigator.gpu) {
+        throw new Error("WebGPU not supported on this browser.");
+    }
 
-      const adapter = await navigator.gpu.requestAdapter();
-      if (!adapter) {
-          throw new Error("No appropriate GPUAdapter found.");
-      }
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) {
+        throw new Error("No appropriate GPUAdapter found.");
+    }
 
-      const device = await adapter.requestDevice();
+    const device = await adapter.requestDevice();
 
-      const context = canvas.getContext("webgpu");
-      const canvasFormat = navigator.gpu.getPreferredCanvasFormat();
-      context.configure({ device: device, format: canvasFormat, });
+    const context = canvas.getContext("webgpu");
+    const canvasFormat = navigator.gpu.getPreferredCanvasFormat();
+    context.configure({ device: device, format: canvasFormat, });
 
-      const vertices = new Float32Array([
+    const vertices = new Float32Array([
 1.1834, 0.88811, 0.256425, -0.90286, -0.423402, -0.0746571, 1, 1, 1, 1, 0, 0, 1.16522, 0.93279, 0.264304, -0.948603, -0.311659, -0.0549538, 1, 1, 1, 1, 0, 0, 1.1612, 0.93259, 0.004174, -0.888467, -0.452231, 0.0781868, 1, 1, 1, 1, 0, 0, 
 1.14331, 0.97661, 0.015788, -0.933769, -0.34172, 0.106318, 1, 1, 1, 1, 0, 0, 1.1612, 0.93259, 0.004174, -0.888467, -0.452231, 0.0781868, 1, 1, 1, 1, 0, 0, 1.16522, 0.93279, 0.264304, -0.948603, -0.311659, -0.0549538, 1, 1, 1, 1, 0, 0, 
 1.1612, 0.93259, 0.004174, -0.888467, -0.452231, 0.0781868, 1, 1, 1, 1, 0, 0, 1.14331, 0.97661, 0.015788, -0.933769, -0.34172, 0.106318, 1, 1, 1, 1, 0, 0, 1.09706, 0.97469, -0.234623, -0.844652, -0.48733, 0.221524, 1, 1, 1, 1, 0, 0, 
@@ -5210,119 +5210,164 @@
 1.25961, -1.28036, -0.402815, 0.984654, 0.030307, -0.171867, 1, 1, 1, 1, 0, 0, 1.25516, -1.30499, -0.406323, 0.901847, -0.367477, -0.22723, 1, 1, 1, 1, 0, 0, 1.19089, -1.23601, -0.654326, 0.939019, 0.0597118, -0.338642, 1, 1, 1, 1, 0, 0, 
 1.25516, -1.30499, -0.406323, 0.901847, -0.367477, -0.22723, 1, 1, 1, 1, 0, 0, 1.25961, -1.28036, -0.402815, 0.984654, 0.030307, -0.171867, 1, 1, 1, 1, 0, 0, 1.27887, -1.35223, -0.138606, 0.916158, -0.394729, -0.0696012, 1, 1, 1, 1, 0, 0, 
 1.2834, -1.32771, -0.134283, 1, 4.17416e-06, 7.36015e-07, 1, 1, 1, 1, 0, 0, 1.27887, -1.35223, -0.138606, 0.916158, -0.394729, -0.0696012, 1, 1, 1, 1, 0, 0, 1.25961, -1.28036, -0.402815, 0.984654, 0.030307, -0.171867, 1, 1, 1, 1, 0, 0, 
-      ]);
+    ]);
 
-      const vertexBuffer = device.createBuffer({
-          label: "Cell vertices",
-          size: vertices.byteLength,
-          usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
-      });
+    const vertexBuffer = device.createBuffer({
+        label: "vertices",
+        size: vertices.byteLength,
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+    });
 
-      device.queue.writeBuffer(vertexBuffer, /*bufferOffset=*/0, vertices);
+    device.queue.writeBuffer(vertexBuffer, /*bufferOffset=*/0, vertices);
 
-      const vertexBufferLayout = {
-          arrayStride: 12 * 4,
-          attributes: [
-              {
-                  format: "float32x3",
-                  offset: 0,
-                  shaderLocation: 0, // Position, see vertex shader
-              },
-              {
-                  format: "float32x3",
-                  offset: 12,
-                  shaderLocation: 1, // Position, see vertex shader
-              },
-          ],
-      };
+    const vertexBufferLayout = {
+        arrayStride: 12 * 4,
+        attributes: [
+            {
+                format: "float32x3",
+                offset: 0,
+                shaderLocation: 0, // Position, see vertex shader
+            },
+            {
+                format: "float32x3",
+                offset: 12,
+                shaderLocation: 1, // Position, see vertex shader
+            },
+        ],
+    };
 
-      const cellShaderModule = device.createShaderModule({
-          label: "Cell shader",
-          code: `
-              struct VertexOutput {
-                  @builtin(position) clip_position: vec4<f32>,
-                  @location(0) color: vec3<f32>,
-              };
+    const shaderModule = device.createShaderModule({
+        label: "shader",
+        code: `
+            struct Transform {
+                modelview: mat4x4<f32>,
+                modelview_normal: mat4x4<f32>,
+                projection: mat4x4<f32>,
+            };
 
-              struct VertexInput {
-                  @location(0) position: vec3<f32>,
-                  @location(1) normal: vec3<f32>,
-              };
+            struct VertexOutput {
+                @builtin(position) position: vec4<f32>,
+                @location(0) color: vec3<f32>,
+            };
 
-              @vertex
-              fn vertexMain(vertex: VertexInput) ->
-                VertexOutput {
-                  var out: VertexOutput;
-                  out.clip_position = vec4f(vertex.position * vec3f(.3, .3, .1) + vec3f(.1, .1, .2), 1.0);
-                  let diffuse = clamp(dot(vec3f(.577, .577, -.577), vertex.normal), 0.0, 1.0);
-                  out.color = vec3f(diffuse, diffuse, diffuse);
-                  return out;
-              }
-          
-              @fragment
-              fn fragmentMain(in: VertexOutput) -> @location(0) vec4f {
-                return vec4f(in.color, 1.0);
-              }
-          `
-      });
+            struct VertexInput {
+                @location(0) position: vec3<f32>,
+                @location(1) normal: vec3<f32>,
+            };
 
-      const depthTexture = device.createTexture({
-          size: [512, 512],
-          format: "depth24plus",
-          usage: GPUTextureUsage.RENDER_ATTACHMENT,
-      });
+            @group(0) @binding(0) var<uniform> view: Transform;
 
+            @vertex
+            fn vertexMain(vertex: VertexInput) ->
+              VertexOutput {
+                var out: VertexOutput;
+                out.position = view.projection * view.modelview * vec4f(vertex.position, 1.0);
+                var normal = view.modelview_normal * vec4f(vertex.normal, 0.0);
+                let diffuse = clamp(dot(vec3f(.577, .577, -.577), normal.xyz), 0.0, 1.0);
+                out.color = vec3f(diffuse, diffuse, diffuse);
+                return out;
+            }
+        
+            @fragment
+            fn fragmentMain(in: VertexOutput) -> @location(0) vec4f {
+              return vec4f(in.color, 1.0);
+            }
+        `
+    });
 
-      const cellPipeline = device.createRenderPipeline({
-          label: "Cell pipeline",
-          layout: "auto",
-          vertex: {
-              module: cellShaderModule,
-              entryPoint: "vertexMain",
-              buffers: [vertexBufferLayout]
-          },
-          fragment: {
-              module: cellShaderModule,
-              entryPoint: "fragmentMain",
-              targets: [
-                  { format: canvasFormat }
-              ]
-          },
-          depthStencil: {
-              depthCompare: "less",
-              depthWriteEnabled: "true",
-              format: "depth24plus",
-          }
-      });
+    const depthTexture = device.createTexture({
+        size: [512, 512],
+        format: "depth24plus",
+        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+    });
 
-      const encoder = device.createCommandEncoder();
+    const pipeline = device.createRenderPipeline({
+        label: "pipeline",
+        layout: "auto",
+        vertex: {
+            module: shaderModule,
+            entryPoint: "vertexMain",
+            buffers: [vertexBufferLayout]
+        },
+        fragment: {
+            module: shaderModule,
+            entryPoint: "fragmentMain",
+            targets: [
+                { format: canvasFormat }
+            ]
+        },
+        depthStencil: {
+            depthCompare: "less",
+            depthWriteEnabled: "true",
+            format: "depth24plus",
+        }
+    });
 
-      const pass = encoder.beginRenderPass({
-          colorAttachments: [{
-              view: context.getCurrentTexture().createView(),
-              clearValue: { r: 0, g: 0, b: 0.4, a: 1 }, // New line
-              loadOp: "clear",
-              storeOp: "store",
-          }],
-          depthStencilAttachment: {
-              view: depthTexture.createView(),
-              depthClearValue: 1.0,
-              depthLoadOp: "clear",
-              depthStoreOp: "store",
-          },
-      });
+    // create float array for Transform
+    const view = new Float32Array(3 * 4 * 4); // 3 float matrices of 4x4 
+                // modelview: mat4x4<f32>,
+                // modelview_normal: mat4x4<f32>,
+                // projection: mat4x4<f32>,
 
-      pass.setPipeline(cellPipeline);
-      pass.setVertexBuffer(0, vertexBuffer);
-      pass.draw(vertices.length / 12); // 6 vertices
+    const viewUniforms = device.createBuffer({
+        label: "viewUniforms",
+        size: view.byteLength,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
 
-      pass.end();
+    const bindGroup = device.createBindGroup({
+        layout: pipeline.getBindGroupLayout(0),
+        entries: [
+            { binding: 0, resource: { buffer: viewUniforms }},
+        ],
+    });
 
-      const commandBuffer = encoder.finish();
+    function Frame()
+    {
+        // Frame
 
-      device.queue.submit([commandBuffer]);
+        // populate float array for Transform
+        var modelview = new Float32Array([.2, 0, 0, 0, 0, .2, 0, 0, 0, 0, .2, 0, .1, .1, .4, 1]);
+        var modelview_normal = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+        var projection = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+        view.set(modelview, 4 * 4 * 0);
+        view.set(modelview_normal, 4 * 4 * 1);
+        view.set(projection, 4 * 4 * 2);
+
+        // write buffer for Transform
+        device.queue.writeBuffer(viewUniforms, 0, view);
+
+        const encoder = device.createCommandEncoder();
+
+        const pass = encoder.beginRenderPass({
+            colorAttachments: [{
+                view: context.getCurrentTexture().createView(),
+                clearValue: { r: 0, g: 0, b: 0.4, a: 1 }, // New line
+                loadOp: "clear",
+                storeOp: "store",
+            }],
+            depthStencilAttachment: {
+                view: depthTexture.createView(),
+                depthClearValue: 1.0,
+                depthLoadOp: "clear",
+                depthStoreOp: "store",
+            },
+        });
+
+        pass.setPipeline(pipeline);
+        pass.setBindGroup(0, bindGroup);
+        pass.setVertexBuffer(0, vertexBuffer);
+        pass.draw(vertices.length / 12); // 6 vertices
+
+        pass.end();
+
+        const commandBuffer = encoder.finish();
+
+        device.queue.submit([commandBuffer]);
+    }
+
+    Frame();
 
     </script>
   </body>
 </html>
-
