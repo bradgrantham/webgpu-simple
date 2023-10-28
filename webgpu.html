@@ -8,7 +8,9 @@
 
 <body>
 
-<canvas width="512" height="512"></canvas>
+<canvas id="rendering" width="512" height="512"></canvas>
+
+<!--script src="//code.jquery.com/jquery-1.11.2.min.js"></script-->
 
 <script type="module">
 
@@ -50,45 +52,45 @@ function to_radians(d)
 function vec3(x, y, z)
 {
     var v = {}
-    v.X = x
-    v.Y = y
-    v.Z = z
+    v[0] = x
+    v[1] = y
+    v[2] = z
     return v
 }
 
 function vec4(x, y, z, w)
 {
     var v = {}
-    v.X = x
-    v.Y = y
-    v.Z = z
+    v[0] = x
+    v[1] = y
+    v[2] = z
     v.W = w
     return v
 }
 
 function vec3_subtract(v1, v2)
 {
-    return vec3(v1.X - v2.X, v1.Y - v2.Y, v1.Z - v2.Z)
+    return vec3(v1[0] - v2[0], v1[1] - v2[1], v1[2] - v2[2])
 }
 
 function vec3_add(v1, v2)
 {
-    return vec3(v1.X + v2.X, v1.Y + v2.Y, v1.Z + v2.Z)
+    return vec3(v1[0] + v2[0], v1[1] + v2[1], v1[2] + v2[2])
 }
 
 function vec3_divide(v, d)
 {
-    return vec3(v.X / d, v.Y / d, v.Z / d)
+    return vec3(v[0] / d, v[1] / d, v[2] / d)
 }
 
 function vec3_multiply(v, d)
 {
-    return vec3(v.X * d, v.Y * d, v.Z * d)
+    return vec3(v[0] * d, v[1] * d, v[2] * d)
 }
 
 function vec3_dot(v1, v2)
 {
-    return v1.X * v2.X + v1.Y * v2.Y + v1.Z * v2.Z
+    return v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2]
 }
 
 function mat4_mult_vec4(m, v)
@@ -97,9 +99,9 @@ function mat4_mult_vec4(m, v)
 
     for(i = 0; i < 4; i++)
 	t[i] =
-	    m[0 + i] * v.X + 
-	    m[4 + i] * v.Y + 
-	    m[8 + i] * v.Z + 
+	    m[0 + i] * v[0] + 
+	    m[4 + i] * v[1] + 
+	    m[8 + i] * v[2] + 
 	    m[12 + i] * v.W
 
     return vec4(t[0], t[1], t[2], t[3])
@@ -457,7 +459,9 @@ function trackball_motion(prevrotation, dx, dy)
     return rotation_mult_rotation(prevrotation, rotation);
 }
 
-const canvas = document.querySelector("canvas");
+var APP = {};
+
+APP.canvas = document.querySelector("canvas");
 
 if (!navigator.gpu) {
     throw new Error("WebGPU not supported on this browser.");
@@ -470,7 +474,7 @@ if (!adapter) {
 
 const device = await adapter.requestDevice();
 
-const context = canvas.getContext("webgpu");
+const context = APP.canvas.getContext("webgpu");
 const canvasFormat = navigator.gpu.getPreferredCanvasFormat();
 context.configure({ device: device, format: canvasFormat, });
 
@@ -5725,7 +5729,7 @@ const shaderModule = device.createShaderModule({
 });
 
 const depthTexture = device.createTexture({
-    size: [canvas.width, canvas.height],
+    size: [APP.canvas.width, APP.canvas.height],
     format: "depth24plus",
     usage: GPUTextureUsage.RENDER_ATTACHMENT,
 });
@@ -5773,24 +5777,19 @@ const bindGroup = device.createBindGroup({
 
 function Frame()
 {
-    // Frame
-
     // populate float array for Transform
-
-    var modelview = mat4_mult(mat4_make_scale(.2, .2, .2), mat4_make_translation(.1, .1, -2));
-    var modelview_normal = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 
     var fov = 45;
     var nearClip = .1 ; // XXX - gSceneManip->m_translation[2] - gSceneManip->m_reference_size;
     var farClip = 1000 ; // XXX - gSceneManip->m_translation[2] + gSceneManip->m_reference_size;
     var frustumTop = Math.tan(fov / 180.0 * 3.14159 / 2) * nearClip;
     var frustumBottom = -frustumTop;
-    var frustumRight = frustumTop * canvas.width / canvas.height;
+    var frustumRight = frustumTop * APP.canvas.width / APP.canvas.height;
     var frustumLeft = -frustumRight;
     var projection = mat4_make_frustum(frustumLeft, frustumRight, frustumBottom, frustumTop, nearClip, farClip);
 
-    view.set(modelview, 4 * 4 * 0);
-    view.set(modelview_normal, 4 * 4 * 1);
+    view.set(APP.modelview, 4 * 4 * 0);
+    view.set(APP.modelview_normal, 4 * 4 * 1);
     view.set(projection, 4 * 4 * 2);
 
     // write buffer for Transform
@@ -5825,7 +5824,163 @@ function Frame()
     device.queue.submit([commandBuffer]);
 }
 
-Frame();
+APP.object_matrix = mat4_make_identity();
+
+APP.camera_matrix = mat4_make_identity();
+APP.camera_projection = mat4_make_identity();
+
+APP.buttondown = false;
+
+APP.ox = 0
+APP.oy = 0
+
+APP.ROTATE_OBJECT=1
+APP.ROTATE_LIGHT=2
+APP.ZOOM_OBJECT=3
+APP.motion_target = APP.ROTATE_OBJECT
+APP.zoom = 1.0
+APP.object_scale = [.1, .1, .1]
+APP.object_rotation = [0, 0, 0, 1]
+APP.object_position = vec3(0, 0, 0)
+
+APP.redraw_frame = true;
+
+function create_camera_matrix(eye)
+{
+    var matrix = mat4_make_identity()
+    var eye_matrix = mat4_make_translation(-eye[0], -eye[1], -eye[2])
+    APP.camera_matrix = mat4_mult(eye_matrix, matrix)
+    var camera_inverse = mat4_invert(APP.camera_matrix)
+}
+
+function create_object_matrix(center, scale, rotation, position)
+{
+    var scale_matrix = mat4_make_scale(scale[0], scale[1], scale[2])
+    var matrix = mat4_make_rotation(-rotation[0], rotation[1], rotation[2], rotation[3])
+    var m2 = mat4_make_translation(-(center[0] + position[0]), -(center[1] + position[0]), -(center[2] + position[0]))
+    APP.object_matrix = mat4_mult(scale_matrix, mat4_mult(matrix, m2))
+}
+
+function update_view_params(zoom)
+{
+    var offset = vec3(0, 0, zoom);
+
+    create_camera_matrix(offset)
+    var scene_center = vec3(0, 0, 0); // XXX
+    create_object_matrix(scene_center, APP.object_scale, APP.object_rotation, APP.object_position)
+
+    APP.modelview = mat4_mult(APP.object_matrix, APP.camera_matrix);
+    var modelview_transpose = mat4_transpose(APP.modelview)
+    APP.modelview_normal = mat4_invert(modelview_transpose)
+    APP.modelview_normal[3] = 0.0
+    APP.modelview_normal[7] = 0.0
+    APP.modelview_normal[11] = 0.0
+}
+
+update_view_params(APP.zoom)
+
+function mousedown(ev)
+{
+    ev.preventDefault()
+    APP.buttondown = true
+    APP.ox = ev.layerX
+    APP.oy = ev.layerY
+}
+
+function mouseup(ev)
+{
+    APP.buttondown = false
+}
+
+function mouseout(ev)
+{
+    APP.buttondown = false
+}
+
+function mousemove(ev)
+{
+    ev.preventDefault()
+    var dx = ev.layerX - APP.ox
+    var dy = ev.layerY - APP.oy
+
+    if(APP.buttondown && ((dx != 0) || (dy != 0))) {
+        var canvas = APP.canvas;
+        if(APP.motion_target == APP.ZOOM_OBJECT) {
+            APP.zoom *= Math.exp(Math.log(5.0) / canvas.height / 2 * -dy)
+        } else if(APP.motion_target == APP.ROTATE_OBJECT) {
+            APP.object_rotation = trackball_motion(APP.object_rotation, -(dx / canvas.width), -(dy / canvas.height))
+        } else {
+            // viewing coordinate system is left-handed, so using GL
+            // rotation code for light is backwards.
+            // APP.light_rotation = trackball_motion(APP.light_rotation, (dx / canvas.width), (dy / canvas.height))
+        }
+        update_view_params(APP.zoom)
+        // update_light()
+        APP.redraw_frame = true;
+    }
+    APP.ox = ev.layerX
+    APP.oy = ev.layerY
+}
+
+function addListener(element, what, func, sendup)
+{
+    if (document.attachEvent) //if IE (and Opera depending on user setting)
+        element.attachEvent("on"+what, func)
+    else if (document.addEventListener) //WC3 browsers
+        element.addEventListener(what, func, true, sendup)
+}
+
+function removeListener(element, what, func)
+{
+    if (document.attachEvent) //if IE (and Opera depending on user setting)
+        element.detachEvent("on"+what, func)
+    else if (document.addEventListener) //WC3 browsers
+        element.removeEventListener(what, func, true)
+}
+
+function disable_interaction()
+{
+    var canvas = APP.canvas;
+    if(document.mousedown) {
+        removeListener(canvas, "mousedown", document.mousedown)
+        removeListener(canvas, "mousemove", document.mousemove)
+        removeListener(canvas, "mouseup", document.mouseup)
+        removeListener(canvas, "mouseout", document.mouseout)
+        document.mousedown = false
+    }
+}
+
+function preventBehavior(e) {
+    e.preventDefault(); 
+};
+
+function enable_interaction()
+{
+    var canvas = APP.canvas;
+
+    document.mousedown = function(ev){mousedown(ev)}
+    document.mousemove = function(ev){mousemove(ev)}
+    document.mouseup = function(ev){mouseup(ev)}
+    document.mouseout = function(ev){mouseout(ev)}
+    addListener(canvas, "mousedown", document.mousedown, true)
+    addListener(canvas, "mousemove", document.mousemove, true)
+    addListener(canvas, "mouseup", document.mouseup, true)
+    addListener(canvas, "mouseout", document.mouseout, true)
+
+    canvas.ondragstart = function() { return false }
+}
+
+enable_interaction();
+
+function tick()
+{
+    if(APP.redraw_frame) {
+        Frame();
+        APP.redraw_frame = false;
+    }
+}
+
+setInterval(tick, 16);
 
 </script>
 </body>
