@@ -478,6 +478,8 @@ const context = APP.canvas.getContext("webgpu");
 const canvasFormat = navigator.gpu.getPreferredCanvasFormat();
 context.configure({ device: device, format: canvasFormat, });
 
+var samples = 4;
+
 const vertices = new Float32Array([
 1.1834, 0.88811, 0.256425, -0.90286, -0.423402, -0.0746571, 1, 1, 1, 1, 0, 0, 1.16522, 0.93279, 0.264304, -0.948603, -0.311659, -0.0549538, 1, 1, 1, 1, 0, 0, 1.1612, 0.93259, 0.004174, -0.888467, -0.452231, 0.0781868, 1, 1, 1, 1, 0, 0, 
 1.14331, 0.97661, 0.015788, -0.933769, -0.34172, 0.106318, 1, 1, 1, 1, 0, 0, 1.1612, 0.93259, 0.004174, -0.888467, -0.452231, 0.0781868, 1, 1, 1, 1, 0, 0, 1.16522, 0.93279, 0.264304, -0.948603, -0.311659, -0.0549538, 1, 1, 1, 1, 0, 0, 
@@ -5716,7 +5718,7 @@ const shaderModule = device.createShaderModule({
             var out: VertexOutput;
             out.position = view.projection * view.modelview * vec4f(vertex.position, 1.0);
             var normal = view.modelview_normal * vec4f(vertex.normal, 0.0);
-            let diffuse = clamp(dot(vec3f(.577, .577, .577), normal.xyz), 0.0, 1.0);
+            let diffuse = clamp(dot(vec3f(.577, .577, .577), normalize(normal.xyz)), 0.0, 1.0);
             out.color = vec3f(diffuse, diffuse, diffuse);
             return out;
         }
@@ -5728,10 +5730,18 @@ const shaderModule = device.createShaderModule({
     `
 });
 
+const colorTexture = device.createTexture({
+    size: [APP.canvas.width, APP.canvas.height],
+    format: canvasFormat,
+    usage: GPUTextureUsage.RENDER_ATTACHMENT,
+    sampleCount: samples,
+});
+
 const depthTexture = device.createTexture({
     size: [APP.canvas.width, APP.canvas.height],
     format: "depth24plus",
     usage: GPUTextureUsage.RENDER_ATTACHMENT,
+    sampleCount: samples,
 });
 
 const pipeline = device.createRenderPipeline({
@@ -5753,7 +5763,8 @@ const pipeline = device.createRenderPipeline({
         depthCompare: "less",
         depthWriteEnabled: "true",
         format: "depth24plus",
-    }
+    },
+    multisample: { count: samples, },
 });
 
 // create float array for Transform
@@ -5799,10 +5810,11 @@ function Frame()
 
     const pass = encoder.beginRenderPass({
         colorAttachments: [{
-            view: context.getCurrentTexture().createView(),
+            view: colorTexture.createView(),
+            resolveTarget: context.getCurrentTexture().createView(),
             clearValue: { r: 0, g: 0, b: 0.4, a: 1 }, // New line
             loadOp: "clear",
-            storeOp: "store",
+            storeOp: "store", // discard
         }],
         depthStencilAttachment: {
             view: depthTexture.createView(),
@@ -5870,11 +5882,11 @@ function update_view_params(zoom)
     create_object_matrix(scene_center, APP.object_scale, APP.object_rotation, APP.object_position)
 
     APP.modelview = mat4_mult(APP.object_matrix, APP.camera_matrix);
-    var modelview_transpose = mat4_transpose(APP.modelview)
-    APP.modelview_normal = mat4_invert(modelview_transpose)
-    APP.modelview_normal[3] = 0.0
-    APP.modelview_normal[7] = 0.0
-    APP.modelview_normal[11] = 0.0
+    var modelview_3x3 = APP.modelview.slice()
+    modelview_3x3[12] = 0.0
+    modelview_3x3[13] = 0.0
+    modelview_3x3[14] = 0.0
+    APP.modelview_normal = mat4_invert(mat4_transpose(modelview_3x3))
 }
 
 update_view_params(APP.zoom)
