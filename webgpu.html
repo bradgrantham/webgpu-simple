@@ -93,6 +93,11 @@ function vec3_dot(v1, v2)
     return v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2]
 }
 
+function vec3_length(v)
+{
+    return Math.sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
+}
+
 function mat4_mult_vec4(m, v)
 {
     var t = [0, 0, 0, 0]
@@ -155,8 +160,8 @@ function mat4_invert(mat)
     var inv = mat4_make_identity()
     var det = mat4_determinant(mat)
     if(Math.abs(det) < EPSILON) /* singular? */ {
-        debug("singular")
-	return
+        // debug("singular")
+	// return
     }
 
     var rswap = 0
@@ -461,6 +466,27 @@ function trackball_motion(prevrotation, dx, dy)
 
 var APP = {};
 
+APP.object_matrix = mat4_make_identity();
+
+APP.camera_matrix = mat4_make_identity();
+APP.camera_projection = mat4_make_identity();
+
+APP.buttondown = false;
+
+APP.ox = 0
+APP.oy = 0
+
+APP.ROTATE_OBJECT=1
+APP.ROTATE_LIGHT=2
+APP.ZOOM_OBJECT=3
+APP.motion_target = APP.ROTATE_OBJECT
+APP.zoom = 1.0
+APP.object_scale = [.1, .1, .1]
+APP.object_rotation = [0, 0, 0, 1]
+APP.object_position = [0, 0, 0];
+
+APP.redraw_frame = true;
+
 APP.canvas = document.querySelector("canvas");
 
 if (!navigator.gpu) {
@@ -480,10 +506,27 @@ context.configure({ device: APP.device, format: canvasFormat, });
 
 var samples = 4;
 
+function box_init()
+{
+    const m = Number.MAX_VALUE;
+    return [[m, m, m], [1-m, 1-m, 1-m]]
+}
+
+function box_add_vec3(bbox, v)
+{
+    bbox[0][0] = Math.min(bbox[0][0], v[0])
+    bbox[0][1] = Math.min(bbox[0][1], v[1])
+    bbox[0][2] = Math.min(bbox[0][2], v[2])
+    bbox[1][0] = Math.max(bbox[1][0], v[0])
+    bbox[1][1] = Math.max(bbox[1][1], v[1])
+    bbox[1][2] = Math.max(bbox[1][2], v[2])
+}
+
 function loadTrisrc(text)
 {
     var lines = text.trim().split("\n")
     var vertices = new Float32Array(lines.length * 3 * 12);
+    var bbox = box_init()
     lines.forEach((line, i) => {
         var parts = line.split("\"");
         var texturename = parts[1]; // discard - could be loaded as image but need to load somehow
@@ -492,7 +535,10 @@ function loadTrisrc(text)
         var diffuse = words.slice(1, 5); // discard - could be used as per-triangle diffuse
         var shininess = words.slice(5); // discard - could be used as Phong shininess
         var triangleData = words.slice(6).map((s) => { return parseFloat(s); });
-        console.log(i, i*36, triangleData.length, i * 36 + triangleData.length, lines.length * 3 * 12);
+        box_add_vec3(bbox, [triangleData[0], triangleData[1], triangleData[2]]);
+        box_add_vec3(bbox, [triangleData[12], triangleData[13], triangleData[14]]);
+        box_add_vec3(bbox, [triangleData[24], triangleData[25], triangleData[26]]);
+        // console.log(i, i*36, triangleData.length, i * 36 + triangleData.length, lines.length * 3 * 12);
         vertices.set(triangleData, i * 36);
     });
 
@@ -502,7 +548,20 @@ function loadTrisrc(text)
         usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
     });
     APP.vertexCount = vertices.length / 12;
+
     APP.device.queue.writeBuffer(APP.vertexBuffer, /*bufferOffset=*/0, vertices);
+
+    var diagonal = vec3_subtract(bbox[1], bbox[0])
+    var dim = vec3_length(diagonal)
+    APP.object_position = vec3_add(bbox[0], vec3_multiply(diagonal, .5))
+    console.log("diagonal = ", diagonal);
+    console.log("dim = ", dim);
+    APP.object_scale = [.8 / dim, .8 / dim, .8 / dim]
+    console.log("APP.object_scale = ", APP.object_scale);
+    console.log("APP.object_position = ", APP.object_position);
+
+    update_view_params(APP.zoom)
+    APP.redraw_frame = true;
 }
 
 loadTrisrc(
@@ -5853,27 +5912,6 @@ function Frame()
     APP.device.queue.submit([commandBuffer]);
 }
 
-APP.object_matrix = mat4_make_identity();
-
-APP.camera_matrix = mat4_make_identity();
-APP.camera_projection = mat4_make_identity();
-
-APP.buttondown = false;
-
-APP.ox = 0
-APP.oy = 0
-
-APP.ROTATE_OBJECT=1
-APP.ROTATE_LIGHT=2
-APP.ZOOM_OBJECT=3
-APP.motion_target = APP.ROTATE_OBJECT
-APP.zoom = 1.0
-APP.object_scale = [.1, .1, .1]
-APP.object_rotation = [0, 0, 0, 1]
-APP.object_position = vec3(0, 0, 0)
-
-APP.redraw_frame = true;
-
 function create_camera_matrix(eye)
 {
     var matrix = mat4_make_identity()
@@ -5882,12 +5920,12 @@ function create_camera_matrix(eye)
     var camera_inverse = mat4_invert(APP.camera_matrix)
 }
 
-function create_object_matrix(center, scale, rotation, position)
+function create_object_matrix(scale, rotation, position)
 {
     var scale_matrix = mat4_make_scale(scale[0], scale[1], scale[2])
-    var matrix = mat4_make_rotation(-rotation[0], rotation[1], rotation[2], rotation[3])
-    var m2 = mat4_make_translation(-(center[0] + position[0]), -(center[1] + position[0]), -(center[2] + position[0]))
-    APP.object_matrix = mat4_mult(scale_matrix, mat4_mult(matrix, m2))
+    var rotation_matrix = mat4_make_rotation(-rotation[0], rotation[1], rotation[2], rotation[3])
+    var translation_matrix = mat4_make_translation(position[0], position[1], position[2])
+    APP.object_matrix = mat4_mult(scale_matrix, mat4_mult(rotation_matrix, translation_matrix))
 }
 
 function update_view_params(zoom)
@@ -5895,8 +5933,11 @@ function update_view_params(zoom)
     var offset = vec3(0, 0, zoom);
 
     create_camera_matrix(offset)
-    var scene_center = vec3(0, 0, 0); // XXX
-    create_object_matrix(scene_center, APP.object_scale, APP.object_rotation, APP.object_position)
+    create_object_matrix(APP.object_scale, APP.object_rotation, APP.object_position)
+    console.log("APP.object_scale", APP.object_scale)
+    console.log("APP.object_rotation", APP.object_rotation)
+    console.log("APP.object_position", APP.object_position)
+    console.log("APP.object_matrix", APP.object_matrix)
 
     APP.modelview = mat4_mult(APP.object_matrix, APP.camera_matrix);
     var modelview_3x3 = APP.modelview.slice()
