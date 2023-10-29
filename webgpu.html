@@ -483,7 +483,7 @@ APP.motion_target = APP.ROTATE_OBJECT
 APP.zoom = 1.0
 APP.object_scale = [.1, .1, .1]
 APP.object_rotation = [0, 0, 0, 1]
-APP.object_position = [0, 0, 0];
+APP.object_translation = [0, 0, 0];
 
 APP.redraw_frame = true;
 
@@ -553,12 +553,11 @@ function loadTrisrc(text)
 
     var diagonal = vec3_subtract(bbox[1], bbox[0])
     var dim = vec3_length(diagonal)
-    APP.object_position = vec3_add(bbox[0], vec3_multiply(diagonal, .5))
-    console.log("diagonal = ", diagonal);
-    console.log("dim = ", dim);
+    var center = vec3_add(bbox[0], vec3_multiply(diagonal, .5))
+    APP.object_translation = vec3_multiply(center, -1)
     APP.object_scale = [.8 / dim, .8 / dim, .8 / dim]
-    console.log("APP.object_scale = ", APP.object_scale);
-    console.log("APP.object_position = ", APP.object_position);
+
+    APP.object_rotation = [0, 0, 0, 1]
 
     update_view_params(APP.zoom)
     APP.redraw_frame = true;
@@ -5920,12 +5919,12 @@ function create_camera_matrix(eye)
     var camera_inverse = mat4_invert(APP.camera_matrix)
 }
 
-function create_object_matrix(scale, rotation, position)
+function create_object_matrix(rotation, scale, translation)
 {
     var scale_matrix = mat4_make_scale(scale[0], scale[1], scale[2])
     var rotation_matrix = mat4_make_rotation(-rotation[0], rotation[1], rotation[2], rotation[3])
-    var translation_matrix = mat4_make_translation(position[0], position[1], position[2])
-    APP.object_matrix = mat4_mult(scale_matrix, mat4_mult(rotation_matrix, translation_matrix))
+    var translation_matrix = mat4_make_translation(translation[0], translation[1], translation[2])
+    APP.object_matrix = mat4_mult(translation_matrix, mat4_mult(scale_matrix, rotation_matrix))
 }
 
 function update_view_params(zoom)
@@ -5933,11 +5932,7 @@ function update_view_params(zoom)
     var offset = vec3(0, 0, zoom);
 
     create_camera_matrix(offset)
-    create_object_matrix(APP.object_scale, APP.object_rotation, APP.object_position)
-    console.log("APP.object_scale", APP.object_scale)
-    console.log("APP.object_rotation", APP.object_rotation)
-    console.log("APP.object_position", APP.object_position)
-    console.log("APP.object_matrix", APP.object_matrix)
+    create_object_matrix(APP.object_rotation, APP.object_scale, APP.object_translation)
 
     APP.modelview = mat4_mult(APP.object_matrix, APP.camera_matrix);
     var modelview_3x3 = APP.modelview.slice()
