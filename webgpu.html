@@ -5756,12 +5756,17 @@ const vertexBufferLayout = {
         {
             format: "float32x3",
             offset: 0,
-            shaderLocation: 0, // Position, see vertex shader
+            shaderLocation: 0, // position, see vertex shader
         },
         {
             format: "float32x3",
             offset: 12,
-            shaderLocation: 1, // Position, see vertex shader
+            shaderLocation: 1, // normal, see vertex shader
+        },
+        {
+            format: "float32x4",
+            offset: 24,
+            shaderLocation: 2, // color, see vertex shader
         },
     ],
 };
@@ -5783,6 +5788,7 @@ const shaderModule = APP.device.createShaderModule({
         struct VertexInput {
             @location(0) position: vec3<f32>,
             @location(1) normal: vec3<f32>,
+            @location(2) color: vec4<f32>,
         };
 
         @group(0) @binding(0) var<uniform> view: Transform;
@@ -5794,7 +5800,7 @@ const shaderModule = APP.device.createShaderModule({
             out.position = view.projection * view.modelview * vec4f(vertex.position, 1.0);
             var normal = view.modelview_normal * vec4f(vertex.normal, 0.0);
             let diffuse = clamp(dot(vec3f(.577, .577, .577), normalize(normal.xyz)), 0.0, 1.0);
-            out.color = vec3f(diffuse, diffuse, diffuse);
+            out.color = vec3f(diffuse, diffuse, diffuse) * vertex.color.xyz;
             return out;
         }
     
