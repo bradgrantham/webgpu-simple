@@ -489,6 +489,9 @@ APP.redraw_frame = true;
 
 APP.canvas = document.querySelector("canvas");
 
+// cribbed next line from http://www.javascriptkit.com/javatutors/onmousewheel.shtml
+window.mousewheelevt=(/Firefox/i.test(navigator.userAgent))? "DOMMouseScroll" : "mousewheel" //FF doesn't recognize mousewheel as of FF3.x
+
 if (!navigator.gpu) {
     throw new Error("WebGPU not supported on this browser.");
 }
@@ -6017,6 +6020,30 @@ function mousemove(ev)
     APP.oy = ev.layerY
 }
 
+function mousewheel(ev)
+{
+    // delta regularization cribbed from http://www.javascriptkit.com/javatutors/onmousewheel.shtml
+    var evt=window.event || ev //equalize event object
+    var delta=evt.detail? evt.detail*(-120) : evt.wheelDelta //check for detail first so Opera uses that instead of wheelDelta
+
+    while(Math.abs(delta) > 0) {
+        var step = (delta > 0) ? -120 : 120
+
+        var dwheel = 2 / step; // 2 empirically chosen 
+        APP.zoom *= Math.exp(dwheel)
+
+        if(Math.abs(step) > Math.abs(delta)) {
+            delta = 0
+        } else {
+            delta = delta - step
+        }
+    }
+    update_view_params(APP.zoom)
+    APP.redraw_frame = true;
+    ev.preventDefault()
+    ev.stopPropagation()
+}
+
 function addListener(element, what, func, sendup)
 {
     if (document.attachEvent) //if IE (and Opera depending on user setting)
@@ -6041,6 +6068,7 @@ function disable_interaction()
         removeListener(canvas, "mousemove", document.mousemove)
         removeListener(canvas, "mouseup", document.mouseup)
         removeListener(canvas, "mouseout", document.mouseout)
+        removeListener(canvas, window.mousewheelevt, document.mousewheel)
         document.mousedown = false
     }
 }
@@ -6092,10 +6120,12 @@ function enable_interaction()
     document.mousemove = function(ev){mousemove(ev)}
     document.mouseup = function(ev){mouseup(ev)}
     document.mouseout = function(ev){mouseout(ev)}
+    document.mousewheel = function(ev){mousewheel(ev)}
     addListener(canvas, "mousedown", document.mousedown, true)
     addListener(canvas, "mousemove", document.mousemove, true)
     addListener(canvas, "mouseup", document.mouseup, true)
     addListener(canvas, "mouseout", document.mouseout, true)
+    addListener(canvas, window.mousewheelevt, document.mousewheel, false)
 
     // canvas.ondragstart = function() { return false }
     canvas.ondrop = function(ev){dropHandler(event);};
