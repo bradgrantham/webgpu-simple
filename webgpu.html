@@ -178,11 +178,11 @@ function mat4_invert(mat)
 
         for(var i = 0; i < 4; i++)
 	{
-            swap = hold[i * 4 + 0]
+            var swap = hold[i * 4 + 0]
             hold[i * 4 + 0] = hold[i * 4 + rswap]
             hold[i * 4 + rswap] = swap
 
-            swap = inv[i * 4 + 0]
+            var swap = inv[i * 4 + 0]
             inv[i * 4 + 0] = inv[i * 4 + rswap]
             inv[i * 4 + rswap] = swap
         }
@@ -5768,6 +5768,11 @@ const vertexBufferLayout = {
             offset: 24,
             shaderLocation: 2, // color, see vertex shader
         },
+        {
+            format: "float32x2",
+            offset: 40,
+            shaderLocation: 3, // texture coordinates, see vertex shader
+        },
     ],
 };
 
@@ -5781,8 +5786,10 @@ const shaderModule = APP.device.createShaderModule({
         };
 
         struct VertexOutput {
-            @builtin(position) position: vec4<f32>,
-            @location(0) color: vec3<f32>,
+            @builtin(position) clip_position: vec4<f32>,
+            @location(0) position: vec4<f32>,
+            @location(1) color: vec3<f32>,
+            @location(2) normal: vec3<f32>,
         };
 
         struct VertexInput {
@@ -5797,16 +5804,33 @@ const shaderModule = APP.device.createShaderModule({
         fn vertexMain(vertex: VertexInput) ->
           VertexOutput {
             var out: VertexOutput;
-            out.position = view.projection * view.modelview * vec4f(vertex.position, 1.0);
-            var normal = view.modelview_normal * vec4f(vertex.normal, 0.0);
-            let diffuse = clamp(dot(vec3f(.577, .577, .577), normalize(normal.xyz)), 0.0, 1.0);
-            out.color = vec3f(diffuse, diffuse, diffuse) * vertex.color.xyz;
+            out.clip_position = view.projection * view.modelview * vec4f(vertex.position, 1.0);
+            out.position = view.modelview * vec4f(vertex.position, 1.0);
+            out.normal = (view.modelview_normal * vec4f(vertex.normal, 0.0)).xyz;
+            out.color = vertex.color.xyz;
             return out;
         }
     
         @fragment
         fn fragmentMain(in: VertexOutput) -> @location(0) vec4f {
-          return vec4f(in.color, 1.0);
+            var normal = normalize(in.normal);
+            let eye_position = -in.position.xyz; 
+            let edir = normalize(eye_position);
+            if(dot(normal, edir) < 0) {
+                normal *= -1;
+            }
+            let light_pos = vec3f(100, 100, 100); // light_position uniform
+            let light_color = vec3f(1, 1, 1); // light_color uniform
+            let ldir = normalize(light_pos - in.position.xyz);
+            let refl = reflect(-ldir, normal);
+            let diffuse = max(0, dot(normal, ldir)) * light_color; // * texture(material_diffuse_texture, vertex_texcoord);
+            let ambient = light_color;
+            // let specular = vec3<f32>(0, 0, 0); 
+            let specular = pow(max(0, dot(refl, edir)), 50 /* material_shininess */) * light_color;
+            let material_diffuse = vec3f(.8, .8, .8);
+            let material_ambient = vec3f(.1, .1, .1);
+            let material_specular = vec3f(.8, .8, .8);
+            return vec4f(in.color * (diffuse * material_diffuse + ambient * material_ambient + specular * material_specular ), 1.0);
         }
     `
 });
