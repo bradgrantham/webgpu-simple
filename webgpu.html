@@ -8,14 +8,65 @@
 
 <body>
 
-<canvas id="rendering" width="512" height="512"></canvas>
-
 <!--script src="//code.jquery.com/jquery-1.11.2.min.js"></script-->
+
+<p><canvas id="rendering" width="512" height="512" style="padding-left: 0; padding-right: 0; margin-left: auto; margin-right: auto; display: block;"></canvas></p>
+<p><div id="progress" style="text-align:center"></div>
+</p>
 
 <script type="module">
 
 //----------------------------------------------------------------------------
 // Script utilities
+
+function progress_spinner(what, counter)
+{
+    var progress = document.getElementById("progress");
+    let size = 10;
+    var where = counter % size;
+    var spinner = '-'.repeat(where) + '=' + '-'.repeat(size - 1 - where);
+    progress.innerHTML = `${what}<br>${spinner}`;
+}
+
+function progress_percent(what, percent)
+{
+    var progress = document.getElementById("progress");
+    progress.innerHTML = `${what}<br>${percent} %`
+}
+
+function progress_complete(what)
+{
+    var progress = document.getElementById("progress");
+    progress.innerHTML = `${what}`
+}
+
+function progress_tick()
+{
+    let now = Date.now();
+    if(now - APP.tick_then > 100) {
+        progress_spinner(APP.whats_spinning, APP.progress)
+        APP.progress += 1
+        APP.tick_then = now;
+    }
+}
+
+function stop_progress_spinner(what)
+{
+    clearInterval(APP.spinnerInterval);
+    progress_complete(what)
+}
+
+function start_progress_spinner(what)
+{
+    APP.whats_spinning = what;
+    APP.progress = 0;
+    if("spinnerInterval" in APP) {
+        clearInterval(APP.spinnerInterval);
+    }
+    APP.tick_then = Date.now();
+    progress_tick();
+    APP.spinnerInterval = setInterval(progress_tick, 33);
+}
 
 // This function adapted from getShader at http://learningwebgl.com/blog/?p=28
 function getScriptText(id)
@@ -525,26 +576,8 @@ function box_add_vec3(bbox, v)
     bbox[1][2] = Math.max(bbox[1][2], v[2])
 }
 
-function loadTrisrc(text)
+function set_shape(vertices, bbox)
 {
-    var lines = text.trim().split("\n")
-    var vertices = new Float32Array(lines.length * 3 * 12);
-    var bbox = box_init()
-    lines.forEach((line, i) => {
-        var parts = line.split("\"");
-        var texturename = parts[1]; // discard - could be loaded as image but need to load somehow
-        var words = parts[2].trim().split(/  */);
-        var tagname = words[0]; // discard - could be used to make list of instances
-        var diffuse = words.slice(1, 5); // discard - could be used as per-triangle diffuse
-        var shininess = words.slice(5); // discard - could be used as Phong shininess
-        var triangleData = words.slice(6).map((s) => { return parseFloat(s); });
-        box_add_vec3(bbox, [triangleData[0], triangleData[1], triangleData[2]]);
-        box_add_vec3(bbox, [triangleData[12], triangleData[13], triangleData[14]]);
-        box_add_vec3(bbox, [triangleData[24], triangleData[25], triangleData[26]]);
-        // console.log(i, i*36, triangleData.length, i * 36 + triangleData.length, lines.length * 3 * 12);
-        vertices.set(triangleData, i * 36);
-    });
-
     APP.vertexBuffer = APP.device.createBuffer({
         label: "vertices",
         size: vertices.byteLength,
@@ -566,6 +599,59 @@ function loadTrisrc(text)
     APP.redraw_frame = true;
 }
 
+function parseTrisrcLine(line, i, vertices, bbox) 
+{
+    var parts = line.split("\"");
+    var texturename = parts[1]; // discard - could be loaded as image but need to load somehow
+    var words = parts[2].trim().split(/  */);
+    var tagname = words[0]; // discard - could be used to make list of instances
+    var diffuse = words.slice(1, 5); // discard - could be used as per-triangle diffuse
+    var shininess = words.slice(5); // discard - could be used as Phong shininess
+    var triangleData = words.slice(6).map((s) => { return parseFloat(s); });
+    box_add_vec3(bbox, [triangleData[0], triangleData[1], triangleData[2]]);
+    box_add_vec3(bbox, [triangleData[12], triangleData[13], triangleData[14]]);
+    box_add_vec3(bbox, [triangleData[24], triangleData[25], triangleData[26]]);
+    // console.log(i, i*36, triangleData.length, i * 36 + triangleData.length);
+    vertices.set(triangleData, i * 36);
+    progress_tick();
+}
+
+function loadTrisrc(text, finished)
+{
+    var lines = text.trim().split("\n")
+    var vertices = new Float32Array(lines.length * 3 * 12);
+    var bbox = box_init()
+    let batch_size = 1000;
+
+    function doBatch(lines, batch_size, batch_offset)
+    {
+        var batch = lines.slice(batch_offset, batch_offset + batch_size);
+        batch.forEach((line, i) => {
+            parseTrisrcLine(line, batch_offset + i, vertices, bbox);
+        });
+    }
+
+    async function asyncBatch(lines, batch_size, batch_offset) {
+        return new Promise(function() {
+            doBatch(lines, batch_size, batch_offset);
+        });
+    }
+
+    function nextAsyncBatch(lines, batch_size, batch_offset, vertices, bbox)
+    {
+        if(batch_offset < lines.length) {
+            asyncBatch(lines, batch_size, batch_offset);
+            setTimeout(() => nextAsyncBatch(lines, batch_size, batch_offset + batch_size, vertices, bbox));
+        } else {
+            set_shape(vertices, bbox);
+            finished();
+        }
+    }
+    nextAsyncBatch(lines, batch_size, 0, vertices, bbox);
+
+}
+
+start_progress_spinner("Parsing");
 loadTrisrc(
 `"*" a .8 .8 .8 1 50 1.1834 0.88811 0.256425 -0.90286 -0.423402 -0.0746571 1 1 1 1 0 0 1.16522 0.93279 0.264304 -0.948603 -0.311659 -0.0549538 1 1 1 1 0 0 1.1612 0.93259 0.004174 -0.888467 -0.452231 0.0781868 1 1 1 1 0 0 
 "*" a .8 .8 .8 1 50 1.14331 0.97661 0.015788 -0.933769 -0.34172 0.106318 1 1 1 1 0 0 1.1612 0.93259 0.004174 -0.888467 -0.452231 0.0781868 1 1 1 1 0 0 1.16522 0.93279 0.264304 -0.948603 -0.311659 -0.0549538 1 1 1 1 0 0 
@@ -5751,152 +5837,161 @@ loadTrisrc(
 "*" a .8 .8 .8 1 50 1.25961 -1.28036 -0.402815 0.984654 0.030307 -0.171867 1 1 1 1 0 0 1.25516 -1.30499 -0.406323 0.901847 -0.367477 -0.22723 1 1 1 1 0 0 1.19089 -1.23601 -0.654326 0.939019 0.0597118 -0.338642 1 1 1 1 0 0 
 "*" a .8 .8 .8 1 50 1.25516 -1.30499 -0.406323 0.901847 -0.367477 -0.22723 1 1 1 1 0 0 1.25961 -1.28036 -0.402815 0.984654 0.030307 -0.171867 1 1 1 1 0 0 1.27887 -1.35223 -0.138606 0.916158 -0.394729 -0.0696012 1 1 1 1 0 0 
 "*" a .8 .8 .8 1 50 1.2834 -1.32771 -0.134283 1 4.17416e-06 7.36015e-07 1 1 1 1 0 0 1.27887 -1.35223 -0.138606 0.916158 -0.394729 -0.0696012 1 1 1 1 0 0 1.25961 -1.28036 -0.402815 0.984654 0.030307 -0.171867 1 1 1 1 0 0 
-`);
+`, finished_initial_loading);
 
-const vertexBufferLayout = {
-    arrayStride: 12 * 4,
-    attributes: [
-        {
-            format: "float32x3",
-            offset: 0,
-            shaderLocation: 0, // position, see vertex shader
-        },
-        {
-            format: "float32x3",
-            offset: 12,
-            shaderLocation: 1, // normal, see vertex shader
-        },
-        {
-            format: "float32x4",
-            offset: 24,
-            shaderLocation: 2, // color, see vertex shader
-        },
-        {
-            format: "float32x2",
-            offset: 40,
-            shaderLocation: 3, // texture coordinates, see vertex shader
-        },
-    ],
-};
+function finished_initial_loading()
+{
+    stop_progress_spinner("Model Loaded");
 
-const shaderModule = APP.device.createShaderModule({
-    label: "shader",
-    code: `
-        struct Transform {
-            modelview: mat4x4<f32>,
-            modelview_normal: mat4x4<f32>,
-            projection: mat4x4<f32>,
-        };
+    APP.vertexBufferLayout = {
+        arrayStride: 12 * 4,
+        attributes: [
+            {
+                format: "float32x3",
+                offset: 0,
+                shaderLocation: 0, // position, see vertex shader
+            },
+            {
+                format: "float32x3",
+                offset: 12,
+                shaderLocation: 1, // normal, see vertex shader
+            },
+            {
+                format: "float32x4",
+                offset: 24,
+                shaderLocation: 2, // color, see vertex shader
+            },
+            {
+                format: "float32x2",
+                offset: 40,
+                shaderLocation: 3, // texture coordinates, see vertex shader
+            },
+        ],
+    };
 
-        struct VertexOutput {
-            @builtin(position) clip_position: vec4<f32>,
-            @location(0) position: vec4<f32>,
-            @location(1) color: vec3<f32>,
-            @location(2) normal: vec3<f32>,
-        };
+    APP.shaderModule = APP.device.createShaderModule({
+        label: "shader",
+        code: `
+            struct Transform {
+                modelview: mat4x4<f32>,
+                modelview_normal: mat4x4<f32>,
+                projection: mat4x4<f32>,
+            };
 
-        struct VertexInput {
-            @location(0) position: vec3<f32>,
-            @location(1) normal: vec3<f32>,
-            @location(2) color: vec4<f32>,
-        };
+            struct VertexOutput {
+                @builtin(position) clip_position: vec4<f32>,
+                @location(0) position: vec4<f32>,
+                @location(1) color: vec3<f32>,
+                @location(2) normal: vec3<f32>,
+            };
 
-        @group(0) @binding(0) var<uniform> view: Transform;
+            struct VertexInput {
+                @location(0) position: vec3<f32>,
+                @location(1) normal: vec3<f32>,
+                @location(2) color: vec4<f32>,
+            };
 
-        @vertex
-        fn vertexMain(vertex: VertexInput) ->
-          VertexOutput {
-            var out: VertexOutput;
-            out.clip_position = view.projection * view.modelview * vec4f(vertex.position, 1.0);
-            out.position = view.modelview * vec4f(vertex.position, 1.0);
-            out.normal = (view.modelview_normal * vec4f(vertex.normal, 0.0)).xyz;
-            out.color = vertex.color.xyz;
-            return out;
-        }
-    
-        @fragment
-        fn fragmentMain(in: VertexOutput) -> @location(0) vec4f {
-            var normal = normalize(in.normal);
-            let eye_position = -in.position.xyz; 
-            let edir = normalize(eye_position);
-            if(dot(normal, edir) < 0) {
-                normal *= -1;
+            @group(0) @binding(0) var<uniform> view: Transform;
+
+            @vertex
+            fn vertexMain(vertex: VertexInput) ->
+              VertexOutput {
+                var out: VertexOutput;
+                out.clip_position = view.projection * view.modelview * vec4f(vertex.position, 1.0);
+                out.position = view.modelview * vec4f(vertex.position, 1.0);
+                out.normal = (view.modelview_normal * vec4f(vertex.normal, 0.0)).xyz;
+                out.color = vertex.color.xyz;
+                return out;
             }
-            let light_pos = vec3f(100, 100, 100); // light_position uniform
-            let light_color = vec3f(1, 1, 1); // light_color uniform
-            let ldir = normalize(light_pos - in.position.xyz);
-            let refl = reflect(-ldir, normal);
-            let diffuse = max(0, dot(normal, ldir)) * light_color; // * texture(material_diffuse_texture, vertex_texcoord);
-            let ambient = light_color;
-            // let specular = vec3<f32>(0, 0, 0); 
-            let specular = pow(max(0, dot(refl, edir)), 50 /* material_shininess */) * light_color;
-            let material_diffuse = vec3f(.8, .8, .8);
-            let material_ambient = vec3f(.1, .1, .1);
-            let material_specular = vec3f(.8, .8, .8);
-            return vec4f(in.color * (diffuse * material_diffuse + ambient * material_ambient + specular * material_specular ), 1.0);
-        }
-    `
-});
+        
+            @fragment
+            fn fragmentMain(in: VertexOutput) -> @location(0) vec4f {
+                var normal = normalize(in.normal);
+                let eye_position = -in.position.xyz; 
+                let edir = normalize(eye_position);
+                if(dot(normal, edir) < 0) {
+                    normal *= -1;
+                }
+                let light_pos = vec3f(100, 100, 100); // light_position uniform
+                let light_color = vec3f(1, 1, 1); // light_color uniform
+                let ldir = normalize(light_pos - in.position.xyz);
+                let refl = reflect(-ldir, normal);
+                let diffuse = max(0, dot(normal, ldir)) * light_color; // * texture(material_diffuse_texture, vertex_texcoord);
+                let ambient = light_color;
+                // let specular = vec3<f32>(0, 0, 0); 
+                let specular = pow(max(0, dot(refl, edir)), 50 /* material_shininess */) * light_color;
+                let material_diffuse = vec3f(.8, .8, .8);
+                let material_ambient = vec3f(.1, .1, .1);
+                let material_specular = vec3f(.8, .8, .8);
+                return vec4f(in.color * (diffuse * material_diffuse + ambient * material_ambient + specular * material_specular ), 1.0);
+            }
+        `
+    });
 
-const colorTexture = APP.device.createTexture({
-    size: [APP.canvas.width, APP.canvas.height],
-    format: canvasFormat,
-    usage: GPUTextureUsage.RENDER_ATTACHMENT,
-    sampleCount: samples,
-});
+    APP.colorTexture = APP.device.createTexture({
+        size: [APP.canvas.width, APP.canvas.height],
+        format: canvasFormat,
+        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        sampleCount: samples,
+    });
 
-const depthTexture = APP.device.createTexture({
-    size: [APP.canvas.width, APP.canvas.height],
-    format: "depth24plus",
-    usage: GPUTextureUsage.RENDER_ATTACHMENT,
-    sampleCount: samples,
-});
-
-const pipeline = APP.device.createRenderPipeline({
-    label: "pipeline",
-    layout: "auto",
-    vertex: {
-        module: shaderModule,
-        entryPoint: "vertexMain",
-        buffers: [vertexBufferLayout]
-    },
-    fragment: {
-        module: shaderModule,
-        entryPoint: "fragmentMain",
-        targets: [
-            { format: canvasFormat }
-        ]
-    },
-    depthStencil: {
-        depthCompare: "less",
-        depthWriteEnabled: "true",
+    APP.depthTexture = APP.device.createTexture({
+        size: [APP.canvas.width, APP.canvas.height],
         format: "depth24plus",
-    },
-    multisample: { count: samples, },
-});
+        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        sampleCount: samples,
+    });
 
-// create float array for Transform
-const view = new Float32Array(3 * 4 * 4); // 3 float matrices of 4x4 
-    // modelview: mat4x4<f32>,
-    // modelview_normal: mat4x4<f32>,
-    // projection: mat4x4<f32>,
+    APP.pipeline = APP.device.createRenderPipeline({
+        label: "pipeline",
+        layout: "auto",
+        vertex: {
+            module: APP.shaderModule,
+            entryPoint: "vertexMain",
+            buffers: [APP.vertexBufferLayout]
+        },
+        fragment: {
+            module: APP.shaderModule,
+            entryPoint: "fragmentMain",
+            targets: [
+                { format: canvasFormat }
+            ]
+        },
+        depthStencil: {
+            depthCompare: "less",
+            depthWriteEnabled: "true",
+            format: "depth24plus",
+        },
+        multisample: { count: samples, },
+    });
 
-const viewUniforms = APP.device.createBuffer({
-    label: "viewUniforms",
-    size: view.byteLength,
-    usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-});
+    // create float array for Transform
+    APP.view = new Float32Array(3 * 4 * 4); // 3 float matrices of 4x4 
+        // modelview: mat4x4<f32>,
+        // modelview_normal: mat4x4<f32>,
+        // projection: mat4x4<f32>,
 
-const bindGroup = APP.device.createBindGroup({
-    layout: pipeline.getBindGroupLayout(0),
-    entries: [
-        { binding: 0, resource: { buffer: viewUniforms }},
-    ],
-});
+    APP.viewUniforms = APP.device.createBuffer({
+        label: "viewUniforms",
+        size: APP.view.byteLength,
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+
+    APP.bindGroup = APP.device.createBindGroup({
+        layout: APP.pipeline.getBindGroupLayout(0),
+        entries: [
+            { binding: 0, resource: { buffer: APP.viewUniforms }},
+        ],
+    });
+}
 
 function Frame()
 {
     // populate float array for Transform
+
+    if(! ("vertexBuffer" in APP)) {
+        return;
+    }
 
     var fov = 45;
     var nearClip = .1 ; // XXX - gSceneManip->m_translation[2] - gSceneManip->m_reference_size;
@@ -5907,33 +6002,33 @@ function Frame()
     var frustumLeft = -frustumRight;
     var projection = mat4_make_frustum(frustumLeft, frustumRight, frustumBottom, frustumTop, nearClip, farClip);
 
-    view.set(APP.modelview, 4 * 4 * 0);
-    view.set(APP.modelview_normal, 4 * 4 * 1);
-    view.set(projection, 4 * 4 * 2);
+    APP.view.set(APP.modelview, 4 * 4 * 0);
+    APP.view.set(APP.modelview_normal, 4 * 4 * 1);
+    APP.view.set(projection, 4 * 4 * 2);
 
     // write buffer for Transform
-    APP.device.queue.writeBuffer(viewUniforms, 0, view);
+    APP.device.queue.writeBuffer(APP.viewUniforms, 0, APP.view);
 
     const encoder = APP.device.createCommandEncoder();
 
     const pass = encoder.beginRenderPass({
         colorAttachments: [{
-            view: colorTexture.createView(),
+            view: APP.colorTexture.createView(),
             resolveTarget: context.getCurrentTexture().createView(),
             clearValue: { r: 0, g: 0, b: 0.4, a: 1 }, // New line
             loadOp: "clear",
             storeOp: "store", // discard
         }],
         depthStencilAttachment: {
-            view: depthTexture.createView(),
+            view: APP.depthTexture.createView(),
             depthClearValue: 1.0,
             depthLoadOp: "clear",
             depthStoreOp: "store",
         },
     });
 
-    pass.setPipeline(pipeline);
-    pass.setBindGroup(0, bindGroup);
+    pass.setPipeline(APP.pipeline);
+    pass.setBindGroup(0, APP.bindGroup);
     pass.setVertexBuffer(0, APP.vertexBuffer);
     pass.draw(APP.vertexCount);
 
@@ -6079,7 +6174,7 @@ function preventBehavior(e) {
 
 function handleTrisrc(file)
 {
-    file.text().then(text => loadTrisrc(text));
+    file.text().then(text => { start_progress_spinner("Parsing"); loadTrisrc(text, () => {stop_progress_spinner("Model Loaded"); })});
 }
 
 function dropHandler(e)
@@ -6087,21 +6182,22 @@ function dropHandler(e)
     e.preventDefault(); 
     console.log("dropped files");
     var files = {}
+    start_progress_spinner("Uploading");
     if (e.dataTransfer.items) {
         // Use DataTransferItemList interface to access the file(s)
         [...e.dataTransfer.items].forEach((item, i) => {
             // If dropped items aren't files, reject them
             if (item.kind === "file") {
                 const file = item.getAsFile();
-                handleTrisrc(file);
                 console.log(`... file[${i}].name = ${file.name}`);
+                handleTrisrc(file);
             }
         });
     } else {
         // Use DataTransfer interface to access the file(s)
         [...e.dataTransfer.files].forEach((file, i) => {
-            handleTrisrc(file);
             console.log(`... file[${i}].name = ${file.name}`);
+            handleTrisrc(file);
         });
     }
 };
