@@ -10,11 +10,39 @@
 
 <!--script src="//code.jquery.com/jquery-1.11.2.min.js"></script-->
 
+<table>
+<tr>
+<td style="margin: auto;">
+<div id="models" style="text-align:center">
+</div>
+</td>
+<td>
 <p><canvas id="rendering" width="512" height="512" style="padding-left: 0; padding-right: 0; margin-left: auto; margin-right: auto; display: block;"></canvas></p>
 <p><div id="progress" style="text-align:center"></div>
+</td>
+</tr>
 </p>
 
 <script type="module">
+
+var modelsList = document.getElementById("models");
+const models = {
+    "Bunny" : "bunny.trisrc",
+    "Teapot" : "teapot.trisrc",
+    "Armadillo" : "armadillo.trisrc",
+    "Dragon" : "dragon.trisrc",
+    "SLK" : "slk.trisrc",
+    "Itokawa f0786432" : "itokawa_f0786432.trisrc",
+    "Knight" : "knight.trisrc",
+    "256-gon" : "256gon.trisrc", 
+};
+for(const [label, model] of Object.entries(models)) {
+    const newButton = document.createElement('button');
+    newButton.textContent = label;
+    newButton.onclick = (() => loadFromURL(model));
+    modelsList.appendChild(newButton);
+    modelsList.appendChild(document.createElement('br'));
+};
 
 //----------------------------------------------------------------------------
 // Script utilities
@@ -515,6 +543,19 @@ function trackball_motion(prevrotation, dx, dy)
     return rotation_mult_rotation(prevrotation, rotation);
 }
 
+// cribbed next line from http://www.javascriptkit.com/javatutors/onmousewheel.shtml
+window.mousewheelevt=(/Firefox/i.test(navigator.userAgent))? "DOMMouseScroll" : "mousewheel" //FF doesn't recognize mousewheel as of FF3.x
+
+if (!navigator.gpu) {
+    throw new Error("WebGPU not supported on this browser.");
+}
+
+const adapter = await navigator.gpu.requestAdapter();
+if (!adapter) {
+    throw new Error("No appropriate GPUAdapter found.");
+}
+
+
 var APP = {};
 
 APP.object_matrix = mat4_make_identity();
@@ -539,18 +580,6 @@ APP.object_translation = [0, 0, 0];
 APP.redraw_frame = true;
 
 APP.canvas = document.querySelector("canvas");
-
-// cribbed next line from http://www.javascriptkit.com/javatutors/onmousewheel.shtml
-window.mousewheelevt=(/Firefox/i.test(navigator.userAgent))? "DOMMouseScroll" : "mousewheel" //FF doesn't recognize mousewheel as of FF3.x
-
-if (!navigator.gpu) {
-    throw new Error("WebGPU not supported on this browser.");
-}
-
-const adapter = await navigator.gpu.requestAdapter();
-if (!adapter) {
-    throw new Error("No appropriate GPUAdapter found.");
-}
 
 APP.device = await adapter.requestDevice();
 
@@ -6201,6 +6230,12 @@ function dropHandler(e)
         });
     }
 };
+
+function loadFromURL(filename)
+{
+    start_progress_spinner("Uploading");
+    fetch(filename).then((response) => handleTrisrc(response));
+}
 
 function dragOverHandler(e)
 {
