@@ -27,14 +27,14 @@
 
 var modelsList = document.getElementById("models");
 const models = {
-    "Bunny" : "bunny.trisrc",
-    "Teapot" : "teapot.trisrc",
-    "Armadillo" : "armadillo.trisrc",
-    "Dragon" : "dragon.trisrc",
-    "SLK" : "slk.trisrc",
-    "Itokawa f0786432" : "itokawa_f0786432.trisrc",
-    "Knight" : "knight.trisrc",
-    "256-gon" : "256gon.trisrc", 
+    "Bunny" : "https://plunk.org/~grantham/bunny.trisrc",
+    "Teapot" : "https://plunk.org/~grantham/teapot.trisrc",
+    "Armadillo" : "https://plunk.org/~grantham/armadillo.trisrc",
+    "Dragon" : "https://plunk.org/~grantham/dragon.trisrc",
+    "SLK" : "https://plunk.org/~grantham/slk.trisrc",
+    "Itokawa f0786432" : "https://plunk.org/~grantham/itokawa_f0786432.trisrc",
+    "Knight" : "https://plunk.org/~grantham/knight.trisrc",
+    "256-gon" : "https://plunk.org/~grantham/256gon.trisrc", 
 };
 for(const [label, model] of Object.entries(models)) {
     const newButton = document.createElement('button');
@@ -6211,7 +6211,7 @@ function dropHandler(e)
     e.preventDefault(); 
     console.log("dropped files");
     var files = {}
-    start_progress_spinner("Uploading");
+    start_progress_spinner("Fetching");
     if (e.dataTransfer.items) {
         // Use DataTransferItemList interface to access the file(s)
         [...e.dataTransfer.items].forEach((item, i) => {
@@ -6233,7 +6233,7 @@ function dropHandler(e)
 
 function loadFromURL(filename)
 {
-    start_progress_spinner("Uploading");
+    start_progress_spinner("Fetching");
     fetch(filename).then((response) => handleTrisrc(response));
 }
 
